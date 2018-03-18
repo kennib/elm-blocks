@@ -1,11 +1,8 @@
 module Blocks exposing (..)
 
-import Html
-import Html.Attributes as Attr
-import TypedSvg as Svg
-import TypedSvg.Attributes exposing (fill)
-import TypedSvg.Attributes.InPx exposing (x, y, width, height, strokeWidth)
-import TypedSvg.Types exposing (Fill(..))
+import Html exposing (Html)
+import Html.Attributes exposing (style,attribute)
+import TypedStyles exposing (..)
 
 import Color exposing (..)
 
@@ -48,24 +45,25 @@ type BlockContent
   | StatementInput BlocksInput
   | TextField (BlockField String)
   | BlockText String
+  | BlockNewline
 
 type alias BlockField a =
   { id : String
-  , default : Maybe a
+  , field : Maybe a
   , editable : Bool
   }
 
 type alias BlockInput =
   { id : String
   , types : List BlockType
-  , default : Maybe Block
+  , block : Maybe Block
   , editable : Bool
   }
 
 type alias BlocksInput =
   { id : String
   , types : List BlockType
-  , default : Maybe (List Block)
+  , blocks : List Block
   , editable : Bool
   }
 
@@ -77,6 +75,7 @@ model =
 blocks =
   [ ioAsk
   , ioPrint
+  , controlFor
   ]
 
 text : Block
@@ -89,8 +88,8 @@ text =
     , ValueInput
       { id = "value"
       , types = [BlockType "String"]
-      , default = Nothing 
-      , editable = True 
+      , block = Nothing
+      , editable = True
       }
     , BlockText "\""
     ]
@@ -100,14 +99,14 @@ ioAsk : Block
 ioAsk =
   { name = "ask"
   , category = "io"
-  , outputType = BlockType "String" 
+  , outputType = BlockType "String"
   , content =
     [ BlockText "ask"
-    , ValueInput 
+    , ValueInput
       { id = "question"
       , types = [BlockType "String"]
-      , default = Just text 
-      , editable = True 
+      , block = Just text
+      , editable = True
       }
     ]
   }
@@ -121,8 +120,41 @@ ioPrint =
     [ BlockText "print"
     , ValueInput
       { id = "value"
+      , types = [BlockType "Value"]
+      , block = Nothing
+      , editable = True
+      }
+    ]
+  }
+
+controlFor : Block
+controlFor =
+  { name = "for"
+  , category = "control"
+  , outputType = BlockType "Statement"
+  , content =
+    [ BlockText "for"
+    , ValueInput
+      { id = "variable"
+      , types = [BlockType "Variable"]
+      , block = Nothing
+      , editable = True
+      }
+    , BlockText "in"
+    , ValueInput
+      { id = "iterable"
+      , types = [BlockType "Iterable"]
+      , block = Nothing
+      , editable = True
+      }
+    , BlockNewline
+    , StatementInput
+      { id = "do"
       , types = [BlockType "Statement"]
-      , default = Nothing
+      , blocks =
+        [ ioPrint
+        , ioAsk
+        ]
       , editable = True
       }
     ]
@@ -139,40 +171,84 @@ update msg model =
   View
 -}
 
+view : Model -> Html msg
 view model =
   Html.div
     []
     [ workspaceView model.blocks
     ]
 
+workspaceView : List Block -> Html msg
 workspaceView blocks =
-  Svg.svg
-    []
-    <| List.map blockView blocks
-
-blockView block =
-  Svg.g
-    []
-    [ Svg.rect
-      [ width 200
-      , height 50
-      , fill <| Fill darkCharcoal
+  Html.ol
+    [ style
+      [ ("list-style", "none")
       ]
-      []
-    , Svg.g
-      []
-      <| List.map blockContentView block.content
     ]
+    <| List.map (\block -> Html.li [] [ blockView block ]) blocks
 
+blockView : Block -> Html msg
+blockView block =
+  Html.div
+    [ style
+      [ ("display", "inline-block")
+      , border 1 px solid white
+      , backgroundColor gray
+      ]
+    ]
+    <| List.map blockContentView block.content
+
+blockContentView : BlockContent -> Html msg
 blockContentView content =
   case content of
+    ValueInput input ->
+      blockInputView input
+    StatementInput input ->
+      blocksInputView input
     BlockText text ->
-      Svg.text_ 
-        [ x 50
-        , y 50
-        , fill <| Fill white
+      Html.span
+        []
+        [ Html.text text
         ]
-        [ Html.text text 
-        ]
+    BlockNewline ->
+      Html.br [] []
     _ ->
       Html.text ""
+
+blockInputView : BlockInput -> Html msg
+blockInputView input =
+  Html.span
+    [ style
+      [ ("display", "inline-block")
+      , ("min-width", "50px")
+      , minHeight 15 px
+      , border 1 px solid red
+      , backgroundColor white
+      , margin 5 px
+      , padding 5 px
+      ]
+    ]
+    [ case input.block of
+      Just block ->
+        blockView block
+      Nothing ->
+        Html.text ""
+    ]
+
+blocksInputView : BlocksInput -> Html msg
+blocksInputView input =
+  Html.ol
+    [ style
+      [ ("display", "inline-block")
+      , ("list-style", "none")
+      , ("min-width", "50px")
+      , minHeight 15 px
+      , border 1 px solid red
+      , borderRightWidth 0 px
+      , backgroundColor white
+      , margin 5 px
+      , padding 5 px
+      ]
+    ]
+    <| List.map (\block -> Html.li [] [ blockView block ]) input.blocks
+
