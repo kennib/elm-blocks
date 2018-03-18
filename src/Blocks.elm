@@ -1,5 +1,7 @@
 module Blocks exposing (..)
 
+import List.Extra as List
+
 import Html exposing (Html)
 import Html.Attributes exposing (style,attribute)
 import TypedStyles exposing (..)
@@ -160,6 +162,55 @@ controlFor =
   }
 
 {-
+  Codegen
+-}
+
+codeGen : List Block -> String
+codeGen blocks =
+  List.map (blockToCode 0) blocks
+  |> String.join "\n"
+
+blockToCode : Int -> Block -> String
+blockToCode nestingLevel block =
+  case block.name of
+    _ ->
+      List.map (contentToCode nestingLevel) block.content |> String.join " "
+
+contentToCode : Int -> BlockContent -> String
+contentToCode nestingLevel content =
+  case content of
+    TextField field ->
+      field.field |> Maybe.withDefault ""
+    ValueInput valueInput ->
+      "(" ++ (Maybe.map (blockToCode (nestingLevel+1)) valueInput.block |> Maybe.withDefault "None") ++ ")"
+    StatementInput statementInput ->
+      let
+        indent = "\n" ++ String.repeat (nestingLevel+1) "\t"
+      in
+        ":" ++ indent ++ (List.map (blockToCode (nestingLevel+1)) statementInput.blocks |> String.join indent)
+    BlockText text ->
+      text
+    BlockNewline ->
+      ""
+    
+
+getTextField : Block -> String -> Maybe String
+getTextField block fieldId =
+  block.content
+  |> List.filterMap (\content ->
+    case content of
+      TextField field ->
+        if field.id == fieldId then
+          Just field.field
+        else
+          Nothing
+      _ ->
+        Nothing
+  )
+  |> List.head
+  |> Maybe.withDefault Nothing
+
+{-
   Update
 -}
 
@@ -175,6 +226,7 @@ view model =
   Html.div
     []
     [ workspaceView model.blocks
+    , codeView model.blocks
     ]
 
 workspaceView : List Block -> Html msg
@@ -259,3 +311,11 @@ blocksInputView input =
     ]
     <| List.map (\block -> Html.li [] [ blockView block ]) input.blocks
 
+codeView : List Block -> Html msg
+codeView blocks =
+  Html.textarea
+    [ attribute "rows" "15"
+    ]
+    [ Html.text
+      <| codeGen blocks
+    ]
