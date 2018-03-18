@@ -85,10 +85,9 @@ text =
   , outputType = BlockType "String"
   , content =
     [ BlockText "\""
-    , ValueInput
-      { id = "value"
-      , types = [BlockType "String"]
-      , block = Nothing
+    , TextField
+      { id = "text"
+      , field = Nothing
       , editable = True
       }
     , BlockText "\""
@@ -205,6 +204,16 @@ blockContentView content =
       blockInputView input
     StatementInput input ->
       blocksInputView input
+    TextField textField ->
+      Html.input
+        []
+        [ Html.text <|
+        case textField.field of
+          Just text ->
+            text
+          Nothing ->
+            ""
+        ]
     BlockText text ->
       Html.span
         []
@@ -212,8 +221,6 @@ blockContentView content =
         ]
     BlockNewline ->
       Html.br [] []
-    _ ->
-      Html.text ""
 
 blockInputView : BlockInput -> Html msg
 blockInputView input =
