@@ -3,6 +3,7 @@ module Blocks exposing (..)
 import List.Extra as List
 
 import Html exposing (Html)
+import Html.Events exposing (onInput)
 import Html.Attributes exposing (style,attribute)
 import TypedStyles exposing (..)
 
@@ -21,7 +22,7 @@ main =
 -}
 
 type alias Model =
-  { blocks : List Block
+  { blocks : List (Block (WorkspaceBlock {}))
   , toolbox : Toolbox
   }
 
@@ -31,20 +32,28 @@ type Toolbox
 
 type ToolboxContent
   = Seperator
-  | ToolboxBlock Block
+  | ToolboxBlock (Block {})
 
-type alias Block =
-  { name : String
+type alias WorkspaceBlock a =
+  { a
+  | id : WorkspaceId
+  }
+
+type alias WorkspaceId = Int
+
+type alias Block a =
+  { a
+  | name : String
   , category : String
   , outputType : BlockType
-  , content : List BlockContent
+  , content : List (BlockContent a)
   }
 
 type BlockType = BlockType String
 
-type BlockContent
-  = ValueInput BlockInput
-  | StatementInput BlocksInput
+type BlockContent a
+  = ValueInput (BlockInput a)
+  | StatementInput (BlocksInput a)
   | TextField (BlockField String)
   | BlockText String
   | BlockNewline
@@ -55,17 +64,17 @@ type alias BlockField a =
   , editable : Bool
   }
 
-type alias BlockInput =
+type alias BlockInput a =
   { id : String
   , types : List BlockType
-  , block : Maybe Block
+  , block : Maybe (Block a)
   , editable : Bool
   }
 
-type alias BlocksInput =
+type alias BlocksInput a =
   { id : String
   , types : List BlockType
-  , blocks : List Block
+  , blocks : List (Block a)
   , editable : Bool
   }
 
@@ -75,12 +84,93 @@ model =
   }
 
 blocks =
-  [ ioAsk
-  , ioPrint
-  , controlFor
-  ]
+  workspaceBlocks
+    [ ioAsk
+    , ioPrint
+    , controlFor
+    ]
 
-text : Block
+workspaceBlocks : List (Block {}) -> List (Block (WorkspaceBlock {}))
+workspaceBlocks blocks =
+  let
+    (_, workspaceBlocks) = createBlocks 0 blocks 
+  in
+    workspaceBlocks
+
+createBlocks : WorkspaceId -> List (Block {}) -> (WorkspaceId, List (Block (WorkspaceBlock {})))
+createBlocks index blocks =
+  case blocks of
+    block::blocksTail ->
+      let
+        (nextIndex, workspaceBlock) = createBlock index block
+        (nextNextIndex, workspaceBlocks) = createBlocks nextIndex blocksTail 
+      in
+        (nextNextIndex, workspaceBlock::workspaceBlocks)
+    [] ->
+      (index, [])
+
+createBlock : WorkspaceId -> Block {} -> (WorkspaceId, Block (WorkspaceBlock {}))
+createBlock index block =
+  let
+    (nextIndex, workspaceContent) = createBlockContents (index+1) block.content
+  in
+    ( nextIndex
+    , { id = index
+      , name = block.name
+      , category = block.category
+      , outputType = block.outputType
+      , content = workspaceContent
+      }
+    )
+
+createBlockContents : WorkspaceId -> List (BlockContent {}) -> (WorkspaceId, List (BlockContent (WorkspaceBlock {})))
+createBlockContents index contents =
+  case contents of
+    content::contentsTail ->
+      let
+        (nextIndex, workspaceContent) = createBlockContent index content
+        (nextNextIndex, workspaceContents) = createBlockContents nextIndex contentsTail 
+      in
+        (nextNextIndex, workspaceContent::workspaceContents)
+    [] ->
+      (index, [])
+
+createBlockContent : WorkspaceId -> BlockContent {} -> (WorkspaceId, BlockContent (WorkspaceBlock {}))
+createBlockContent index content =
+  case content of
+    ValueInput input ->
+      let
+        (nextIndex, workspaceBlock) =
+          case input.block of
+            Just block ->
+              createBlock index block
+              |> Tuple.mapSecond Just
+            Nothing ->
+              (index, Nothing)
+      in
+        (nextIndex
+        , ValueInput 
+          { input
+          | block = workspaceBlock
+          }
+        )
+    StatementInput input ->
+      let
+        (nextIndex, workspaceBlocks) = createBlocks index input.blocks
+      in
+        (nextIndex
+        , StatementInput
+          { input
+          | blocks = workspaceBlocks
+          }
+        )
+    TextField field ->
+      (index, TextField field)
+    BlockText text ->
+      (index, BlockText text)
+    BlockNewline ->
+      (index, BlockNewline)
+
 text =
   { name = "text"
   , category = "text"
@@ -96,7 +186,6 @@ text =
     ]
   }
 
-ioAsk : Block
 ioAsk =
   { name = "ask"
   , category = "io"
@@ -112,7 +201,6 @@ ioAsk =
     ]
   }
 
-ioPrint : Block
 ioPrint =
   { name = "print"
   , category = "io"
@@ -128,20 +216,19 @@ ioPrint =
     ]
   }
 
-controlFor : Block
 controlFor =
   { name = "for"
   , category = "control"
   , outputType = BlockType "Statement"
   , content =
-    [ BlockText "for"
+    [ BlockText "for "
     , ValueInput
       { id = "variable"
       , types = [BlockType "Variable"]
       , block = Nothing
       , editable = True
       }
-    , BlockText "in"
+    , BlockText " in "
     , ValueInput
       { id = "iterable"
       , types = [BlockType "Iterable"]
@@ -165,18 +252,18 @@ controlFor =
   Codegen
 -}
 
-codeGen : List Block -> String
+codeGen : List (Block a) -> String
 codeGen blocks =
   List.map (blockToCode 0) blocks
   |> String.join "\n"
 
-blockToCode : Int -> Block -> String
+blockToCode : Int -> Block a -> String
 blockToCode nestingLevel block =
   case block.name of
     _ ->
-      List.map (contentToCode nestingLevel) block.content |> String.join " "
+      List.map (contentToCode nestingLevel) block.content |> String.join ""
 
-contentToCode : Int -> BlockContent -> String
+contentToCode : Int -> BlockContent a -> String
 contentToCode nestingLevel content =
   case content of
     TextField field ->
@@ -194,7 +281,7 @@ contentToCode nestingLevel content =
       ""
     
 
-getTextField : Block -> String -> Maybe String
+getTextField : Block a -> String -> Maybe String
 getTextField block fieldId =
   block.content
   |> List.filterMap (\content ->
@@ -214,14 +301,76 @@ getTextField block fieldId =
   Update
 -}
 
+type Msg
+  = TextInput WorkspaceId String
+
 update msg model =
-  (model, Cmd.none)
+  case msg of
+    TextInput workspaceId text ->
+      ({ model | blocks = List.map (updateWorkspaceId workspaceId (setTextField "text" text)) model.blocks}, Cmd.none)
+
+updateWorkspaceId
+  :  WorkspaceId
+  -> (Block (WorkspaceBlock a) -> Block (WorkspaceBlock a))
+  -> Block (WorkspaceBlock a)
+  -> Block (WorkspaceBlock a)
+updateWorkspaceId id update block =
+  if block.id == id then
+    update block
+  else
+    let
+      content = List.map (updateWorkspaceIdContent id update) block.content
+    in
+      { block
+      | content = content
+      }
+
+updateWorkspaceIdContent
+  :  WorkspaceId
+  -> (Block (WorkspaceBlock a) -> Block (WorkspaceBlock a))
+  -> BlockContent (WorkspaceBlock a)
+  -> BlockContent (WorkspaceBlock a)
+updateWorkspaceIdContent id update content =
+  case content of
+    ValueInput input ->
+      ValueInput
+        { input
+        | block = input.block |> Maybe.map (updateWorkspaceId id update)
+        }
+    StatementInput input ->
+      StatementInput
+        { input
+        | blocks = input.blocks |> List.map (updateWorkspaceId id update)
+        }
+    _ ->
+      content
+
+setTextField : String -> String -> Block a -> Block a
+setTextField fieldId value block =
+  let
+    updatedContent = 
+      block.content
+      |> List.map updateContent
+
+    updateContent content =
+      case content of
+        TextField field ->
+          if field.id == fieldId then
+            TextField { field | field = Just value }
+          else
+            TextField field
+        _ ->
+          content
+  in
+    { block
+    | content = updatedContent
+    }
 
 {-
   View
 -}
 
-view : Model -> Html msg
+view : Model -> Html Msg
 view model =
   Html.div
     []
@@ -229,7 +378,7 @@ view model =
     , codeView model.blocks
     ]
 
-workspaceView : List Block -> Html msg
+workspaceView : List (Block (WorkspaceBlock a)) -> Html Msg
 workspaceView blocks =
   Html.ol
     [ style
@@ -238,7 +387,7 @@ workspaceView blocks =
     ]
     <| List.map (\block -> Html.li [] [ blockView block ]) blocks
 
-blockView : Block -> Html msg
+blockView : Block (WorkspaceBlock a) -> Html Msg
 blockView block =
   Html.div
     [ style
@@ -247,10 +396,10 @@ blockView block =
       , backgroundColor gray
       ]
     ]
-    <| List.map blockContentView block.content
+    <| List.map (blockContentView block.id) block.content
 
-blockContentView : BlockContent -> Html msg
-blockContentView content =
+blockContentView : WorkspaceId -> BlockContent (WorkspaceBlock a) -> Html Msg
+blockContentView id content =
   case content of
     ValueInput input ->
       blockInputView input
@@ -258,7 +407,8 @@ blockContentView content =
       blocksInputView input
     TextField textField ->
       Html.input
-        []
+        [ onInput (TextInput id)
+        ]
         [ Html.text <|
         case textField.field of
           Just text ->
@@ -274,7 +424,7 @@ blockContentView content =
     BlockNewline ->
       Html.br [] []
 
-blockInputView : BlockInput -> Html msg
+blockInputView : BlockInput (WorkspaceBlock a) -> Html Msg
 blockInputView input =
   Html.span
     [ style
@@ -294,7 +444,7 @@ blockInputView input =
         Html.text ""
     ]
 
-blocksInputView : BlocksInput -> Html msg
+blocksInputView : BlocksInput (WorkspaceBlock a) -> Html Msg
 blocksInputView input =
   Html.ol
     [ style
@@ -311,7 +461,7 @@ blocksInputView input =
     ]
     <| List.map (\block -> Html.li [] [ blockView block ]) input.blocks
 
-codeView : List Block -> Html msg
+codeView : List (Block a) -> Html Msg
 codeView blocks =
   Html.textarea
     [ attribute "rows" "15"
